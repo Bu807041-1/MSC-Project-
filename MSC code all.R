@@ -1,0 +1,2258 @@
+#clear workspace
+rm(list = ls())
+
+#------
+#10 trials per stimulus level data 
+#------
+#Set working directory to import text files 
+#of the 10 trials per stimulus level  experiments
+setwd("~/Archive/PSE Trials Per Stimulus Level 10")
+
+#Load  in all relevant analysis packages
+#required of code below
+library(tidyverse)
+library(papaja)
+library(dplyr)
+library(tibble)
+library(reshape2)
+library(ggplot2)
+
+#Importing the 10 trials per stimulus experiments
+files_10T <- list.files(pattern=".*.txt")
+
+#Sort into numerical order and read into workspace
+files_10T<- str_sort(files_10T, numeric = TRUE)
+files_10T <- lapply(files_10T, read.delim2, header = FALSE)
+
+#Generating 3-D array for plotting later 
+#Number of participants per conditon for mixed Anova
+participant = 11
+
+
+#set for DataFrame creation
+#Magnitude of effect range 
+mag = 11
+
+#Num of simulated experiments per combition of 
+#participcants and effect
+exp = 100
+
+#Generating the 3-D arrays for filling with p-values below. 
+#for then working out the proportion <= .05,.01,.001
+Bsubjects_10T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Wsubjects_10T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Interaction_10T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+
+
+#for loop through the list of experiments to change 
+#format of each data frame so a mixed Anova
+#can be ran to R specification i.e long format.
+for (Ten_T in 1:length(files_10T)) {
+  
+  #Renaming df coloumns
+  names(files_10T[[Ten_T]]) <- c("Baseline","1","2"
+                                 ,"3","4","5")
+  
+  #Add in condition column 
+  files_10T[[Ten_T]] <- add_column(files_10T[[Ten_T]], Condition = "Experimental", .before = 'Baseline')
+  #Add id coloumn for each participant
+  files_10T[[Ten_T]]<-rowid_to_column(files_10T[[Ten_T]], var='Participant')
+  
+  #Through each iteration the length of the condition column is being extracted 
+  #in order affect  the code below
+  #so that the correct # of rows can be converted from being called
+  #experimental to control
+  a <- length(files_10T[[Ten_T]][,"Condition"])
+  
+  #Count of the top of range of participants
+  #specifying the end of the control condition
+  ContT = a
+  
+  #Half of the top count to specify the first control participant
+  ContB = a/2+1 
+  
+  #Renaming using the speciffication above to rename the cell values
+  #to specify control group
+  files_10T[[Ten_T]][ContB:ContT,"Condition"] <- "Control"
+  
+  #Changing each data frame into long format using melt function
+  files_10T[[Ten_T]] <- melt(files_10T[[Ten_T]], id = c("Participant", "Condition"), measure = c("Baseline",
+                                                                                                 "1" ,"2" , "3" ,"4" , "5"))
+  #Renaming df Columns
+  names(files_10T[[Ten_T]]) <- c("Participant", "Condition", "Session", "PSE")
+  
+  #Specifying data of df for analysis
+  files_10T[[Ten_T]]$Participant <- factor(files_10T[[Ten_T]]$Participant) 
+  files_10T[[Ten_T]]$Condition <- factor(files_10T[[Ten_T]]$Condition) 
+  files_10T[[Ten_T]]$Session <- factor(files_10T[[Ten_T]]$Session) 
+  files_10T[[Ten_T]]$PSE <- as.numeric(files_10T[[Ten_T]]$PSE) 
+  
+}
+
+
+#Empty list for filling with p-values below
+
+listofB10T_pv <- list() 
+listofW10T_pv <- list()
+listofI10T_pv <- list()
+
+#for loop over the experiments and extracting
+#Between, within and interaction effect from 
+#Mixed ANOVA analyses
+
+for (Ten_T in 1:length(files_10T)) {
+  
+  M_ANOVA_10T <- aov(PSE~ Condition*Session + Error(Participant/Session), data = files_10T[[Ten_T]])
+  
+  PVBsubjects_10T <- summary(M_ANOVA_10T)[["Error: Participant"]][[1]]["Condition" , "Pr(>F)"]
+  
+  listofB10T_pv[[Ten_T]] <- PVBsubjects_10T
+  
+  PVWsubjects_10T <- summary(M_ANOVA_10T)[["Error: Participant:Session"]][[1]]["Session" , "Pr(>F)"]
+  listofW10T_pv[[Ten_T]] <- PVWsubjects_10T
+  
+  PVInteraction_10T <- summary(M_ANOVA_10T)[["Error: Participant:Session"]][[1]]["Condition:Session" , "Pr(>F)"]
+  listofI10T_pv[[Ten_T]] <- PVInteraction_10T
+  #Interaction[Participant,Mag, Exp] <- PVInteraction
+}
+
+#for loop through the list of p values extracting
+#and index into the arrays set above
+c = 0
+for (Participant_T10 in 1:participant) {
+  for (Mag_T10 in 1:mag) {
+    for (Exp_T10 in 1:exp) {
+      c = c+1
+      
+      Bsubjects_10T[Participant_T10, Mag_T10, Exp_T10] <- listofB10T_pv[[c]]
+      
+      Wsubjects_10T[Participant_T10, Mag_T10, Exp_T10] <- listofW10T_pv[[c]]
+      
+      Interaction_10T[Participant_T10, Mag_T10, Exp_T10] <- listofI10T_pv[[c]]
+      
+    }
+  }
+}
+
+#Setting up data frames to index the
+#proportion of p-values calculated 
+#by the for loop below
+BData05_10T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData01_10T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData001_10T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData05_10T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData01_10T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData001_10T <- data.frame(matrix(ncol = mag, nrow = participant))
+IData05_10T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData01_10T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData001_10T <-data.frame(matrix(ncol = mag, nrow = participant))
+
+#for loop to index and calculate the proprotion of p vlaues <= .05,.01,.001
+for (Participant_T10 in 1:participant) {
+  for (Mag_T10 in 1:mag) {
+    
+    #Extract Between subjects effect p-vlaue from array above to index again below
+    extract_expB_T10 <- Bsubjects_10T [Participant_T10,Mag_T10,]
+    
+    #Calculate the proportion of experiments
+    #between subject effect with
+    #p-values <= .05
+    prop_ofexpB05_T10 <- mean(extract_expB_T10 <= 0.05)
+    BData05_10T[Participant_T10,Mag_T10] <- prop_ofexpB05_T10
+    
+    #Calculate the proportion of experiments
+    #between subject effect with
+    #p-values <= .01
+    prop_ofexpB01_T10 <- mean(extract_expB_T10 <= 0.01)
+    BData01_10T[Participant_T10,Mag_T10] <- prop_ofexpB01_T10
+    
+    #Calculate the proportion of experiments
+    #between subject effect with
+    #p-values <= .001
+    prop_ofexpB001_T10 <- mean(extract_expB_T10 <= 0.001)
+    BData001_10T[Participant_T10,Mag_T10] <- prop_ofexpB001_T10
+    
+    #Extract Within subjects effect p-vlaue from array above to index again below
+    extract_expW_T10 <- Wsubjects_10T[Participant_T10,Mag_T10,]
+
+    #Calculate the proportion of experiments
+    #within subject effect with
+    #p-values <= .05
+    prop_ofexpW05_T10 <- mean(extract_expW_T10 <= 0.05)
+    WData05_10T[Participant_T10,Mag_T10] <-prop_ofexpW05_T10
+    
+    #Calculate the proportion of experiments
+    #within subject effect with
+    #p-values <= .01
+    prop_ofexpW01_T10 <- mean(extract_expW_T10 <= 0.01)
+    WData01_10T[Participant_T10,Mag_T10] <-prop_ofexpW01_T10
+    
+    #Calculate the proportion of experiments
+    #within subject effect with
+    #p-values <= .001
+    prop_ofexpW001_T10 <- mean(extract_expW_T10 <= 0.001)
+    WData001_10T[Participant_T10,Mag_T10] <-prop_ofexpW001_T10
+    
+    #Extracting the interaction effect
+    #p-vlaue from array above to index again below
+    extract_expI_T10 <- Interaction_10T[Participant_T10,Mag_T10,]
+    
+    #Calculate the proportion of experiments with
+    #interaction effects with p-values <= .05
+    prop_ofexpI05_T10 <- mean(extract_expI_T10 <= 0.05)
+    IData05_10T[Participant_T10,Mag_T10] <- prop_ofexpI05_T10
+    
+    #Calculate the proportion of experiments with
+    #interaction effects with p-values <= .01
+    prop_ofexpI01_T10 <- mean(extract_expI_T10 <= 0.01)
+    IData01_10T[Participant_T10,Mag_T10] <- prop_ofexpI01_T10
+    
+    #Calculate the proportion of experiments with
+    #interactions effects with p-values <= .001
+    prop_ofexpI001_T10 <- mean(extract_expI_T10 <= 0.001)
+    IData001_10T[Participant_T10,Mag_T10] <- prop_ofexpI001_T10
+  }
+}
+
+#Code to plot heatmaps for the Mixed ANOVA effects
+
+#Code to format between subject effect p-values df to be plotted as a heatmap
+BData05_10T
+BData05_10T <- rowid_to_column(BData05_10T, var='Participant')
+BData05_10T$Participant <- BData05_10T[, 1] + 4
+names(BData05_10T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+BData05_10T[2:12] <- BData05_10T[2:12]*100
+BData05_10T <- melt(BData05_10T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(BData05_10T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with Between subjects 
+#effect with P-value <= .05
+ggplot(BData05_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+
+#Code to format between subject effect p-values df to be plotted as a heatmap
+BData01_10T
+BData01_10T <- rowid_to_column(BData01_10T, var='Participant')
+BData01_10T$Participant <- BData01_10T[, 1] + 4
+names(BData01_10T) <- c("Participant","0","0.04","0.08","0.12",
+                        "0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36",
+                        "0.40")
+
+BData01_10T[2:12] <- BData01_10T[2:12]*100
+BData01_10T <- melt(BData01_10T, 
+                    id = c("Participant"), measure = c("0","0.04","0.08","0.12","0.16",
+                                                       "0.20","0.24",
+                                                       "0.28", "0.32", 
+                                                       "0.36","0.40"))
+names(BData01_10T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with Between subjects 
+#effect with P-value <= .01
+ggplot(BData01_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+
+#Code to format between subject effect p-values 
+#df to be plotted as a heatmap
+BData001_10T
+BData001_10T <- rowid_to_column(BData001_10T, var='Participant')
+BData001_10T$Participant <- BData001_10T[, 1] + 4
+names(BData001_10T) <- c("Participant","0","0.04","0.08","0.12",
+                         "0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36",
+                         "0.40")
+
+BData001_10T[2:12] <- BData001_10T[2:12]*100
+BData001_10T <- melt(BData001_10T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16",
+                                 "0.20","0.24",
+                                 "0.28", "0.32", 
+                                 "0.36","0.40"))
+
+
+names(BData001_10T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with Between subjects 
+#effect with P-value <= .001
+ggplot(BData001_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData05_10T <- rowid_to_column(WData05_10T, var='Participant')
+WData05_10T$Participant <- WData05_10T[, 1] + 4
+names(WData05_10T)<- c("Participant","0","0.04","0.08","0.12",
+                       "0.16","0.20","0.24",
+                       "0.28", "0.32", "0.36",
+                       "0.40")
+
+WData05_10T[2:12] <- WData05_10T[2:12]*100
+
+WData05_10T <- melt(WData05_10T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12",
+                                "0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36",
+                                "0.40"))
+
+
+names(WData05_10T) <- c("Participant", "Effect", "PV")
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+ggplot(WData05_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+
+#Heatmap of %experiments with within subjects 
+#effect with P-value <= .01
+WData01_10T
+WData01_10T <- rowid_to_column(WData01_10T, var='Participant')
+WData01_10T$Participant <- WData01_10T[, 1] + 4
+names(WData01_10T)<- c("Participant","0","0.04","0.08","0.12",
+                       "0.16","0.20","0.24",
+                       "0.28", "0.32", "0.36",
+                       "0.40")
+
+WData01_10T[2:12] <- WData01_10T[2:12]*100
+
+WData01_10T <- melt(WData01_10T, id = c("Participant"), 
+                    measure = c("0","0.04","0.08","0.12",
+                                "0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36",
+                                "0.40"))
+
+names(WData01_10T) <- c("Participant", "Effect", "PV")
+WData01_10T
+
+#Heatmap of experiments with within subjects 
+#effect with P-value <= .01
+ggplot(WData01_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData001_10T
+WData001_10T <- rowid_to_column(WData001_10T, var='Participant')
+WData001_10T$Participant <- WData001_10T[, 1] + 4
+names(WData001_10T)<- c("Participant","0","0.04","0.08","0.12",
+                        "0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36",
+                        "0.40")
+
+WData001_10T[2:12] <- WData001_10T[2:12]*100
+
+WData001_10T <- melt(WData001_10T, id = c("Participant"), 
+                     measure = c("0","0.04","0.08","0.12",
+                                 "0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36",
+                                 "0.40"))
+
+names(WData001_10T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effect  
+#effect with P-value <= .001
+ggplot(WData001_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData05_10T
+IData05_10T <- rowid_to_column(IData05_10T, var='Participant')
+IData05_10T$Participant <- IData05_10T[, 1] + 4
+names(IData05_10T)<- c("Participant","0","0.04","0.08","0.12",
+                       "0.16","0.20","0.24",
+                       "0.28", "0.32", "0.36",
+                       "0.40")
+
+IData05_10T[2:12] <- IData05_10T[2:12]*100
+
+IData05_10T <- melt(IData05_10T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12",
+                                "0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36",
+                                "0.40"))
+
+names(IData05_10T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .05
+ggplot(IData05_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData01_10T
+IData01_10T <- rowid_to_column(IData01_10T, var='Participant')
+IData01_10T$Participant <- IData01_10T[, 1] + 4
+names(IData01_10T)<- c("Participant","0","0.04","0.08","0.12",
+                       "0.16","0.20","0.24",
+                       "0.28", "0.32", "0.36",
+                       "0.40")
+
+IData01_10T[2:12] <- IData01_10T[2:12]*100
+
+IData01_10T <- melt(IData01_10T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12",
+                                "0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36",
+                                "0.40"))
+
+names(IData01_10T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .01
+ggplot(IData01_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect")  +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+ylab("Number of Participants\n Per Condition")+
+  labs( fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        plot.title = element_text(hjust = 1))+theme_apa()
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData001_10T
+IData001_10T <- rowid_to_column(IData001_10T, var='Participant')
+IData001_10T$Participant <- IData001_10T[, 1] + 4
+names(IData001_10T)<- c("Participant","0","0.04","0.08","0.12",
+                        "0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36",
+                        "0.40")
+
+IData001_10T[2:12] <- IData001_10T[2:12]*100
+
+IData001_10T <- melt(IData001_10T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12",
+                                 "0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36",
+                                 "0.40"))
+
+names(IData001_10T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .001
+ggplot(IData001_10T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#------
+#25 trials per stimulus analysis
+#------
+
+
+#Set working directory to import text files for 25 trials per stimulus
+setwd("~/Archive/PSE Trials Per Stimulus Level 25")
+
+#Importing 25 trials per stim experiments
+#numerical ordered into workspace
+files_25T <- list.files(pattern=".*.txt")
+files_25T<- str_sort(files_25T, numeric = TRUE)
+files_25T <- lapply(files_25T, read.delim2, header = FALSE)
+
+
+#Generate 3-D matrices for filling with p-values below. 
+#for then working out the proportion <= 0.05
+Bsubjects_25T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Wsubjects_25T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Interaction_25T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+
+#for loop through the list of experiments to change 
+#format of each data frame so a mixed Anova
+#can be ran to R specification i.e long format.
+for (TF_T in 1:length(files_25T)) {
+  
+  #Naming coloumns
+  names(files_25T[[TF_T]]) <- c("Baseline", "1" ,"2" , "3" , "4" , "5")
+  #Add in condition column
+  files_25T[[TF_T]] <- add_column(files_25T[[TF_T]], Condition = "Experimental", .before = 'Baseline')
+  
+  #Add id coloumn for each participant
+  files_25T[[TF_T]]<-rowid_to_column(files_25T[[TF_T]], var='Participant')
+  
+  #Through each iteration the length of 
+  #the condition column is being extracted 
+  #in order affectthe code below
+  #so that the correct # of rows 
+  #can be converted from being called
+  #experimental to control
+  a <- length(files_25T[[TF_T]][,"Condition"])
+  
+  #Count of the top of range of partiapnt number specifying the end
+  #of the control condition
+  ContT = a
+  
+  #Half of the top count to specify the first control participant
+  ContB = a/2+1
+  
+  #Renaming using the speciffication above to rename the cell values
+  #to Control
+  files_25T[[TF_T]][ContB:ContT,"Condition"] <- "Control"
+  
+  #Changing each data frame into long format using melt function
+  files_25T[[TF_T]] <- melt(files_25T[[TF_T]], id = c("Participant", "Condition"), measure = c("Baseline",
+                                                                                               "1" ,"2" , "3" ,"4" , "5"))
+  #Renaming columns
+  names(files_25T[[TF_T]]) <- c("Participant", "Condition", "Session", "PSE") 
+  
+  #Setting all data to settings
+  files_25T[[TF_T]]$Participant <- factor(files_25T[[TF_T]]$Participant) 
+  files_25T[[TF_T]]$Condition <- factor(files_25T[[TF_T]]$Condition) 
+  files_25T[[TF_T]]$Session <- factor(files_25T[[TF_T]]$Session) 
+  files_25T[[TF_T]]$PSE <- as.numeric(files_25T[[TF_T]]$PSE) 
+  
+}
+
+#Empty lists for filling with p-values below
+listofB25T_pv <- list() 
+listofW25T_pv <- list()
+listofI25T_pv <- list()
+
+
+#for loop over the experiments and extracting
+#Between, within and interaction effect from 
+#Mixed ANOVA analysis 
+for (TF_T in 1:length(files_25T)) {
+  
+  M_ANOVA_25T <- aov(PSE~ Condition*Session + Error(Participant/Session), data = files_25T[[TF_T]])
+  
+  PVBsubjects_25T <- summary(M_ANOVA_25T)[["Error: Participant"]][[1]]["Condition" , "Pr(>F)"]
+  #print(PVBsubjects)
+  listofB25T_pv[[TF_T]] <- PVBsubjects_25T
+  #Bsubjects[Participant,Mag,Exp] <- PVBsubjects
+  
+  PVWsubjects_25T <- summary(M_ANOVA_25T)[["Error: Participant:Session"]][[1]]["Session" , "Pr(>F)"]
+  listofW25T_pv[[TF_T]] <- PVWsubjects_25T
+  #Wsubjects[Participant,Mag,Exp] <- PVWsubjects
+  
+  PVInteraction_25T <- summary(M_ANOVA_25T)[["Error: Participant:Session"]][[1]]["Condition:Session" , "Pr(>F)"]
+  listofI25T_pv [[TF_T]] <- PVInteraction_25T
+  #Interaction[Participant,Mag, Exp] <- PVInteraction
+}
+
+#for loop through the list of p-values extracting
+#and index into array set above
+
+c = 0
+for (Participant_T25 in 1:participant) {
+  for (Mag_T25 in 1:mag) {
+    for (Exp_T25 in 1:exp) {
+      c = c+1
+      
+      Bsubjects_25T[Participant_T25, Mag_T25, Exp_T25] <- listofB25T_pv[[c]]
+      
+      Wsubjects_25T[Participant_T25, Mag_T25, Exp_T25] <- listofW25T_pv[[c]]
+      
+      Interaction_25T[Participant_T25, Mag_T25, Exp_T25] <- listofI25T_pv[[c]]
+      
+    }
+  }
+}
+
+
+#Setting up data frames to index the
+#proportion of p-values calculated 
+#by the for loop below
+BData05_25T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData01_25T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData001_25T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData05_25T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData01_25T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData001_25T <- data.frame(matrix(ncol = mag, nrow = participant))
+IData05_25T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData01_25T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData001_25T <-data.frame(matrix(ncol = mag, nrow = participant))
+
+#for loop to index and calculate proprotion of p vlaues <= .05,.01,.001
+for (Participant_T25 in 1:participant) {
+  for (Mag_T25 in 1:mag) {
+    
+    #Extract Between subjects effect p-values from array 
+    #above to index again below
+    extract_expB_T25 <- Bsubjects_25T[Participant_T25,Mag_T25,]
+    
+    #Calculate the proportion between subject effect with
+    #p-values <= .05
+    prop_ofexpB05_T25 <- mean(extract_expB_T25 <= 0.05)
+    BData05_25T[Participant_T25,Mag_T25] <- prop_ofexpB05_T25
+    
+    #Calculate the proportion between subject effect with
+    #p-values <= .01
+    prop_ofexpB01_T25 <- mean(extract_expB_T25 <= 0.01)
+    BData01_25T[Participant_T25,Mag_T25] <- prop_ofexpB01_T25
+    
+    #Calculate the proportion between subject effect with
+    #p-values <= .001
+    prop_ofexpB001_T25 <- mean(extract_expB_T25 <= 0.001)
+    BData001_25T[Participant_T25,Mag_T25] <- prop_ofexpB001_T25
+    
+    #Extract within subjects effect p-values from array 
+    #above to index again below
+    extract_expW_T25 <- Wsubjects_25T[Participant_T25,Mag_T25,]
+    
+    #Calculate the proportion within subject effect with
+    #p-values <= .05
+    prop_ofexpW05_T25 <- mean(extract_expW_T25 <= 0.05)
+    WData05_25T[Participant_T25,Mag_T25] <-prop_ofexpW05_T25
+    
+    #Calculate the proportion within subject effect with
+    #p-values <= .01
+    prop_ofexpW01_T25 <- mean(extract_expW_T25 <= 0.01)
+    WData01_25T[Participant_T25,Mag_T25] <-prop_ofexpW01_T25
+    
+    #Calculate the proportion of within subject effect with
+    #p-values <= .001
+    prop_ofexpW001_T25 <- mean(extract_expW_T25 <= 0.001)
+    WData001_25T[Participant_T25,Mag_T25] <-prop_ofexpW001_T25
+    
+    #Extract Interaction effects p-values from array 
+    #above to index again below
+    extract_expI_T25 <- Interaction_25T[Participant_T25,Mag_T25,]
+    
+    #Calculate the proportion of interaction effects with
+    #p-values <= .05
+    prop_ofexpI05_T25 <- mean(extract_expI_T25 <= 0.05)
+    IData05_25T[Participant_T25,Mag_T25] <- prop_ofexpI05_T25
+    
+    #Calculate the proportion of interaction effects with
+    #p-values <= .01
+    prop_ofexpI01_T25 <- mean(extract_expI_T25 <= 0.01)
+    IData01_25T[Participant_T25,Mag_T25] <- prop_ofexpI01_T25
+    
+    #Calculate the proportion of interaction effects with
+    #p-values <= .001
+    prop_ofexpI001_T25 <- mean(extract_expI_T25 <= 0.001)
+    IData001_25T[Participant_T25,Mag_T25] <- prop_ofexpI001_T25
+  }
+}
+
+#Code to format Between subject effect p-values 
+#df to be plotted as a heatmap
+BData05_25T
+BData05_25T <- rowid_to_column(BData05_25T, var='Participant')
+BData05_25T$Participant <- BData05_25T[, 1] + 4
+names(BData05_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+BData05_25T[2:12] <- BData05_25T[2:12]*100
+BData05_25T <- melt(BData05_25T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(BData05_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .05
+ggplot(BData05_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format Between subject effect p-values 
+#df to be plotted as a heatmap
+BData01_25T
+BData01_25T <- rowid_to_column(BData01_25T, var='Participant')
+BData01_25T$Participant <- BData01_25T[, 1] + 4
+names(BData01_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+BData01_25T[2:12] <- BData01_25T[2:12]*100
+BData01_25T <- melt(BData01_25T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(BData01_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .01
+ggplot(BData01_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format Between subject effect p-values 
+#df to be plotted as a heatmap
+BData001_25T
+BData001_25T <- rowid_to_column(BData001_25T, var='Participant')
+BData001_25T$Participant <- BData001_25T[, 1] + 4
+names(BData001_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+
+BData001_25T[2:12] <- BData001_25T[2:12]*100
+BData001_25T <- melt(BData001_25T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(BData001_25T) <- c("Participant", "Effect", "PV")
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .001
+ggplot(BData001_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData05_25T
+WData05_25T <- rowid_to_column(WData05_25T, var='Participant')
+WData05_25T$Participant <- WData05_25T[, 1] + 4
+names(WData05_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+WData05_25T[2:12] <- WData05_25T[2:12]*100
+WData05_25T <- melt(WData05_25T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(WData05_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .05
+ggplot(WData05_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData01_25T
+WData01_25T <- rowid_to_column(WData01_25T, var='Participant')
+WData01_25T$Participant <- WData01_25T[, 1] + 4
+names(WData01_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+WData01_25T[2:12] <- WData01_25T[2:12]*100
+WData01_25T <- melt(WData01_25T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(WData01_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .01
+ggplot(WData01_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData001_25T
+WData001_25T <- rowid_to_column(WData001_25T, var='Participant')
+WData001_25T$Participant <- WData001_25T[, 1] + 4
+names(WData001_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+
+WData001_25T[2:12] <- WData001_25T[2:12]*100
+WData001_25T <- melt(WData001_25T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(WData001_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .001
+ggplot(WData001_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData05_25T
+IData05_25T <- rowid_to_column(IData05_25T, var='Participant')
+IData05_25T$Participant <- IData05_25T[, 1] + 4
+names(IData05_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+IData05_25T[2:12] <- IData05_25T[2:12]*100
+IData05_25T <- melt(IData05_25T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(IData05_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .05
+ggplot(IData05_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData01_25T
+IData01_25T <- rowid_to_column(IData01_25T, var='Participant')
+IData01_25T$Participant <- IData01_25T[, 1] + 4
+names(IData01_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+IData01_25T[2:12] <- IData01_25T[2:12]*100
+IData01_25T <- melt(IData01_25T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(IData01_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .01
+ggplot(IData01_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData001_25T
+IData001_25T <- rowid_to_column(IData001_25T, var='Participant')
+IData001_25T$Participant <- IData001_25T[, 1] + 4
+names(IData001_25T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+
+IData001_25T[2:12] <- IData001_25T[2:12]*100
+IData001_25T <- melt(IData001_25T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(IData001_25T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .001
+ggplot(IData001_25T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#------
+#40 Trials per stim
+#------
+
+#Setting working directory for the 40 trials PSE data
+setwd("~/Archive/PSE Trials Per Stimulus Level 40")
+
+
+#Load in the data 40 trials expeiments
+#in numerical order into workspace
+files_40T <- list.files(pattern=".*.txt")
+files_40T<- str_sort(files_40T, numeric = TRUE)
+files_40T <- lapply(files_40T, read.delim2, header = FALSE)
+
+#Generate 3-D matrices for filling with p-values below. 
+Bsubjects_40T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Wsubjects_40T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Interaction_40T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+
+#for loop through the list of experiments to change 
+#format of each data frame so a mixed Anova
+#can be ran to R specification i.e long format.
+for (Forty_T in 1:length(files_40T)) {
+  
+  #Naming coloumns
+  names(files_40T[[Forty_T]]) <- c("Baseline", "1" ,"2" , "3" , "4" , "5")
+  #Add in condtition column and name each experiemental for now
+  files_40T[[Forty_T]] <- add_column(files_40T[[Forty_T]], Condition = "Experimental", .before = 'Baseline')
+  #Add id coloumn for each participant
+  files_40T[[Forty_T]]<-rowid_to_column(files_40T[[Forty_T]], var='Participant')
+  
+  #Through each iteration the length of the condition column is being extracted 
+  #in order affectthe code below
+  #so that the correct # of rows can be converted from being called
+  #experimental to control
+  a <- length(files_40T[[Forty_T]][,"Condition"])
+  
+  #Count of the top of range of partiapnt number specifying the end
+  #of the control condition
+  ContT = a
+  #Half of the top count to specify the first control participant
+  ContB = a/2+1 
+  #Renaming using the speciffication above to rename the cell values
+  #to Control
+  files_40T[[Forty_T]][ContB:ContT,"Condition"] <- "Control"
+  
+  #Changing each data frame into long format using melt funtion
+  files_40T[[Forty_T]] <- melt(files_40T[[Forty_T]], id = c("Participant", "Condition"), measure = c("Baseline",
+                                                                                                     "1" ,"2" , "3" ,"4" , "5"))
+  #Renaming columns
+  names(files_40T[[Forty_T]]) <- c("Participant", "Condition", "Session", "PSE") 
+  #setting data type of variable in the data frame for mixed ANOVA settings
+  files_40T[[Forty_T]]$Participant <- factor(files_40T[[Forty_T]]$Participant) 
+  files_40T[[Forty_T]]$Condition <- factor(files_40T[[Forty_T]]$Condition) 
+  files_40T[[Forty_T]]$Session <- factor(files_40T[[Forty_T]]$Session) 
+  files_40T[[Forty_T]]$PSE <- as.numeric(files_40T[[Forty_T]]$PSE)
+  
+}
+
+#Empty lists for filling with p-values below
+listofB40T_pv <- list() 
+listofW40T_pv <- list()
+listofI40T_pv <- list()
+
+#for loop over the experiments and extracting
+#Between, within and interaction effect from 
+#Mixed ANOVA analysis
+for (Forty_T in 1:length(files_40T)) {
+  
+  M_ANOVA_40T <- aov(PSE~ Condition*Session + Error(Participant/Session), data = files_40T[[Forty_T]])
+  
+  PVBsubjects_40T <- summary(M_ANOVA_40T)[["Error: Participant"]][[1]]["Condition" , "Pr(>F)"]
+
+  listofB40T_pv[[Forty_T]] <- PVBsubjects_40T
+ 
+  PVWsubjects_40T <- summary(M_ANOVA_40T)[["Error: Participant:Session"]][[1]]["Session" , "Pr(>F)"]
+  listofW40T_pv[[Forty_T]] <- PVWsubjects_40T
+  
+  PVInteraction_40T <- summary(M_ANOVA_40T)[["Error: Participant:Session"]][[1]]["Condition:Session" , "Pr(>F)"]
+  listofI40T_pv [[Forty_T]] <- PVInteraction_40T
+ 
+}
+
+#for loop through the list of p-values extracting
+#and index into array set above
+c = 0
+for (Participant_T40 in 1:participant) {
+  for (Mag_T40 in 1:mag) {
+    for (Exp_T40 in 1:exp) {
+      c = c+1
+      
+      Bsubjects_40T[Participant_T40, Mag_T40, Exp_T40] <- listofB40T_pv[[c]]
+      
+      Wsubjects_40T[Participant_T40, Mag_T40, Exp_T40] <- listofW40T_pv[[c]]
+      
+      Interaction_40T[Participant_T40, Mag_T40, Exp_T40] <- listofI40T_pv[[c]]
+      
+    }
+  }
+}
+
+
+#Setting up data frames to index the
+#proportion of p-values calculated 
+#by the for loop below
+BData05_40T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData01_40T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData001_40T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData05_40T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData01_40T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData001_40T <- data.frame(matrix(ncol = mag, nrow = participant))
+IData05_40T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData01_40T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData001_40T <-data.frame(matrix(ncol = mag, nrow = participant))
+
+#for loop to index and calculate the proprotion of p vlaues <= .05,.01,.001
+for (Participant_T40 in 1:participant) {
+  for (Mag_T40 in 1:mag) {
+    
+    #Extract Between subjects effect p-values from array 
+    #above to index again below
+    extract_expB_T40 <- Bsubjects_40T[Participant_T40,Mag_T40,]
+  
+    #Calculate the proportion experiments with between subject effect with
+    #p-values <= .05
+    prop_ofexpB05_T40 <- mean(extract_expB_T40 <= 0.05)
+    BData05_40T[Participant_T40,Mag_T40] <- prop_ofexpB05_T40
+    
+    #Calculate the proportion experiments with between subject effect with
+    #p-values <= .01
+    prop_ofexpB01_T40 <- mean(extract_expB_T40 <= 0.01)
+    BData01_40T[Participant_T40,Mag_T40] <- prop_ofexpB01_T40
+    
+    #Calculate the proportion experiments with between subject effect with
+    #p-values <= .001
+    prop_ofexpB001_T40 <- mean(extract_expB_T40 <= 0.001)
+    BData001_40T[Participant_T40,Mag_T40] <- prop_ofexpB001_T40
+    
+    #Extract within subjects effect p-values from array 
+    #above to index again below
+    extract_expW_T40 <- Wsubjects_40T[Participant_T40,Mag_T40,]
+    
+    #Calculate the proportion experiments with within subject effects with
+    #p-values <= .05
+    prop_ofexpW05_T40 <- mean(extract_expW_T40 <= 0.05)
+    WData05_40T[Participant_T40,Mag_T40] <-prop_ofexpW05_T40
+    
+    #Calculate the proportion experiments with within subject effects with
+    #p-values <= .05
+    prop_ofexpW01_T40 <- mean(extract_expW_T40 <= 0.01)
+    WData01_40T[Participant_T40,Mag_T40] <-prop_ofexpW01_T40
+    
+    #Calculate the proportion experiments with within subject effects with
+    #p-values <= .05
+    prop_ofexpW001_T40 <- mean(extract_expW_T40 <= 0.001)
+    WData001_40T[Participant_T40,Mag_T40] <-prop_ofexpW001_T40
+    
+    #Extract interaction effect p-values from array 
+    #above to index again below
+    extract_expI_T40 <- Interaction_40T[Participant_T40,Mag_T40,]
+ 
+    #Calculate the proportion Experiements with interaction effects with
+    #p-values <= .05
+    prop_ofexpI05_T40 <- mean(extract_expI_T40 <= 0.05)
+    IData05_40T[Participant_T40,Mag_T40] <- prop_ofexpI05_T40
+    
+    #Calculate the proportion Experiements with interaction effectswith
+    #p-values <= .01
+    prop_ofexpI01_T40 <- mean(extract_expI_T40 <= 0.01)
+    IData01_40T[Participant_T40,Mag_T40] <- prop_ofexpI01_T40
+    
+    #Calculate the proportion Experiements with interaction effects with
+    #p-values <= .001
+    prop_ofexpI001_T40 <- mean(extract_expI_T40 <= 0.001)
+    IData001_40T[Participant_T40,Mag_T40] <- prop_ofexpI001_T40
+  }
+}
+
+#Code to format Between subject effect p-values 
+#df to be plotted as a heatmap
+BData05_40T
+BData05_40T <- rowid_to_column(BData05_40T, var='Participant')
+BData05_40T$Participant <- BData05_40T[, 1] + 4
+names(BData05_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+BData05_40T[2:12] <- BData05_40T[2:12]*100
+BData05_40T <- melt(BData05_40T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(BData05_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .05
+ggplot(BData05_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+BData01_40T
+BData01_40T <- rowid_to_column(BData01_40T, var='Participant')
+BData01_40T$Participant <- BData01_40T[, 1] + 4
+names(BData01_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+BData01_40T[2:12] <- BData01_40T[2:12]*100
+BData01_40T <- melt(BData01_40T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(BData01_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .01
+ggplot(BData01_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format Betwenn subjects effect p-values 
+#df to be plotted as a heatmap
+BData001_40T
+BData001_40T <- rowid_to_column(BData001_40T, var='Participant')
+BData001_40T$Participant <- BData001_40T[, 1] + 4
+names(BData001_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+BData001_40T[2:12] <- BData001_40T[2:12]*100
+BData001_40T <- melt(BData001_40T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(BData001_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .001
+ggplot(BData001_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData05_40T
+WData05_40T <- rowid_to_column(WData05_40T, var='Participant')
+WData05_40T$Participant <- WData05_40T[, 1] + 4
+names(WData05_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+WData05_40T[2:12] <- WData05_40T[2:12]*100
+WData05_40T <- melt(WData05_40T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(WData05_40T) <- c("Participant", "Effect", "PV")
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .05
+ggplot(WData05_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData01_40T
+WData01_40T <- rowid_to_column(WData01_40T, var='Participant')
+WData01_40T$Participant <- WData01_40T[, 1] + 4
+names(WData01_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+WData01_40T[2:12] <- WData01_40T[2:12]*100
+WData01_40T <- melt(WData01_40T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(WData01_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .01
+ggplot(WData01_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData001_40T
+WData001_40T <- rowid_to_column(WData001_40T, var='Participant')
+WData001_40T$Participant <- WData001_40T[, 1] + 4
+names(WData001_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+WData001_40T[2:12] <- WData001_40T[2:12]*100
+WData001_40T <- melt(WData001_40T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(WData001_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .001
+ggplot(WData001_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData05_40T
+IData05_40T <- rowid_to_column(IData05_40T, var='Participant')
+IData05_40T$Participant <- IData05_40T[, 1] + 4
+names(IData05_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+IData05_40T[2:12] <- IData05_40T[2:12]*100
+IData05_40T <- melt(IData05_40T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(IData05_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .05
+ggplot(IData05_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData01_40T
+IData01_40T <- rowid_to_column(IData01_40T, var='Participant')
+IData01_40T$Participant <- IData01_40T[, 1] + 4
+names(IData01_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+IData01_40T[2:12] <- IData01_40T[2:12]*100
+IData01_40T <- melt(IData01_40T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(IData01_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .01
+ggplot(IData01_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData001_40T
+IData001_40T
+IData001_40T <- rowid_to_column(IData001_40T, var='Participant')
+IData001_40T$Participant <- IData001_40T[, 1] + 4
+names(IData001_40T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+IData001_40T[2:12] <- IData001_40T[2:12]*100
+IData001_40T <- melt(IData001_40T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(IData001_40T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .001
+ggplot(IData001_40T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#------
+#55 trials per stimulus level
+#------
+
+#ReSetting working directory for experiemetns with 55 trials pers stimulus level
+setwd("~/Archive/PSE Trials Per Stimulus Level 55/")
+
+#Setting working directory for the 55 trials PSE data
+files_55T <- list.files(pattern=".*.txt")
+files_55T<- str_sort(files_55T, numeric = TRUE)
+files_55T <- lapply(files_55T, read.delim2, header = FALSE)
+
+#Generate 3-D matrices for filling with p-values below. 
+Bsubjects_55T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Wsubjects_55T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+Interaction_55T <- array(rep(NA, participant*mag*exp), dim=c(participant, mag, exp))
+
+#for loop through the list of experiments to change 
+#format of each data frame so a mixed Anova
+#can be ran to R specification i.e long format
+for (FF_T in 1:length(files_55T)) {
+  
+  #Naming coloumns
+  names(files_55T[[FF_T]]) <- c("Baseline", "1" ,"2" , "3" , "4" , "5")
+  #Add in condition column and name each experiemental 
+  files_55T[[FF_T]] <- add_column(files_55T[[FF_T]], Condition = "Experimental", .before = 'Baseline')
+  #Add id coloumn for each participant
+  files_55T[[FF_T]]<-rowid_to_column(files_55T[[FF_T]], var='Participant')
+  
+  #Through each iteration the length of the condition column is being extracted 
+  #in order affect  the code below
+  #so that the correct # of rows can be converted from being called
+  #experimental to control
+  a <- length(files_55T[[FF_T]][,"Condition"])
+  
+  #Count of the top of range of partiapnt number specifying the end
+  #of the control condition
+  ContT = a
+  #Half of the top count to specify the first control participant
+  ContB = a/2+1 
+  #Renaming using the speciffication above to rename the cell values
+  #to Control
+  files_55T[[FF_T]][ContB:ContT,"Condition"] <- "Control"
+  
+  #Changing each data frame into long format using melt function
+  files_55T[[FF_T]] <- melt(files_55T[[FF_T]], id = c("Participant", "Condition"), measure = c("Baseline",
+                                                                                               "1" ,"2" , "3" ,"4" , "5"))
+  #Renaming columns
+  names(files_55T[[FF_T]]) <- c("Participant", "Condition", "Session", "PSE") 
+  #Changinf data types to run Mixed ANOVA
+  files_55T[[FF_T]]$Participant <- factor(files_55T[[FF_T]]$Participant) 
+  files_55T[[FF_T]]$Condition <- factor(files_55T[[FF_T]]$Condition) 
+  files_55T[[FF_T]]$Session <- factor(files_55T[[FF_T]]$Session) 
+  files_55T[[FF_T]]$PSE <- as.numeric(files_55T[[FF_T]]$PSE)
+  
+}
+
+#Empty list for filling with p-values below
+listofB55T_pv <- list() 
+listofW55T_pv <- list()
+listofI55T_pv <- list()
+
+#for loop over the experiments and extracting
+#Between, within and interaction effect from 
+#Mixed ANOVA analysis
+for (FF_T in 1:length(files_55T)) {
+  
+  M_ANOVA_55T <- aov(PSE~ Condition*Session + Error(Participant/Session), data = files_55T[[FF_T]])
+  
+  PVBsubjects_55T <- summary(M_ANOVA_55T)[["Error: Participant"]][[1]]["Condition" , "Pr(>F)"]
+
+  listofB55T_pv[[FF_T]] <- PVBsubjects_55T
+  
+  PVWsubjects_55T <- summary(M_ANOVA_55T)[["Error: Participant:Session"]][[1]]["Session" , "Pr(>F)"]
+  listofW55T_pv[[FF_T]] <- PVWsubjects_55T
+
+  PVInteraction_55T <- summary(M_ANOVA_55T)[["Error: Participant:Session"]][[1]]["Condition:Session" , "Pr(>F)"]
+  listofI55T_pv [[FF_T]] <- PVInteraction_55T
+}
+
+#for loop through the list of p-values extracting
+#and index into array set above
+c = 0
+for (Participant_T55 in 1:participant) {
+  for (Mag_T55 in 1:mag) {
+    for (Exp_T55 in 1:exp) {
+      c = c+1
+      
+      Bsubjects_55T[Participant_T55, Mag_T55, Exp_T55] <- listofB55T_pv[[c]]
+      
+      Wsubjects_55T[Participant_T55, Mag_T55, Exp_T55] <- listofW55T_pv[[c]]
+      
+      Interaction_55T[Participant_T55, Mag_T55, Exp_T55] <- listofI55T_pv[[c]]
+      
+    }
+  }
+}
+
+#Setting up data frames to index the
+#proportion of p-values calculated 
+#by the for loop below
+BData05_55T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData01_55T <- data.frame(matrix(ncol = mag, nrow = participant))
+BData001_55T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData05_55T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData01_55T <- data.frame(matrix(ncol = mag, nrow = participant))
+WData001_55T <- data.frame(matrix(ncol = mag, nrow = participant))
+IData05_55T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData01_55T <-data.frame(matrix(ncol = mag, nrow = participant))
+IData001_55T <-data.frame(matrix(ncol = mag, nrow = participant))
+
+#for loop to index and calculating proprotion of p vlaues <= .05,.01,.001
+for (Participant_T55 in 1:participant) {
+  for (Mag_T55 in 1:mag) {
+    
+    #Extract Between subjects effect p-values from array 
+    #above to index again below
+    extract_expB_T55 <- Bsubjects_55T [Participant_T55,Mag_T55,]
+    
+    #Calculate the proportion experiments with between subject effect with
+    #p-values <= .05
+    prop_ofexpB05_T55 <- mean(extract_expB_T55 <= 0.05)
+    BData05_55T[Participant_T55,Mag_T55] <- prop_ofexpB05_T55
+    
+    #Calculate the proportion experiments with between subject effect with
+    #p-values <= .01
+    prop_ofexpB01_T55 <- mean(extract_expB_T55 <= 0.01)
+    BData01_55T[Participant_T55,Mag_T55] <- prop_ofexpB01_T55
+    
+    #Calculate the proportion experiments with between subject effect with
+    #p-values <= .001
+    prop_ofexpB001_T55 <- mean(extract_expB_T55 <= 0.001)
+    BData001_55T[Participant_T55,Mag_T55] <- prop_ofexpB001_T55
+    
+    #Extract within subjects effect p-values from array 
+    #above to index again below
+    extract_expW_T55 <- Wsubjects_55T[Participant_T55,Mag_T55,]
+   
+    #Calculate the proportion experiments with within subject effects with
+    #p-values <= .05
+    prop_ofexpW05_T55 <- mean(extract_expW_T55 <= 0.05)
+    WData05_55T[Participant_T55,Mag_T55] <-prop_ofexpW05_T55
+    
+    #Calculate the proportion experiments with within subject effects with
+    #p-values <= .01
+    prop_ofexpW01_T55 <- mean(extract_expW_T55 <= 0.01)
+    WData01_55T[Participant_T55,Mag_T55] <-prop_ofexpW01_T55
+    
+    #Calculate the proportion experiments with within subject effects with
+    #p-values <= .001
+    prop_ofexpW001_T55 <- mean(extract_expW_T55 <= 0.001)
+    WData001_55T[Participant_T55,Mag_T55] <-prop_ofexpW001_T55
+    
+    #Extract interqction effect p-values from array 
+    #above to index again below
+    extract_expI_T55 <- Interaction_55T[Participant_T55,Mag_T55,]
+  
+    #Calculate the proportion Experiements with interaction effects with
+    #p-values <= .05
+    prop_ofexpI05_T55 <- mean(extract_expI_T55 <= 0.05)
+    IData05_55T[Participant_T55,Mag_T55] <- prop_ofexpI05_T55
+    
+    #Calculate the proportion Experiements with interaction effects with
+    #p-values <= .01
+    prop_ofexpI01_T55 <- mean(extract_expI_T55 <= 0.01)
+    IData01_55T[Participant_T55,Mag_T55] <- prop_ofexpI01_T55
+    #Calculate the proportion Experiements with interaction effects with
+    #p-values <= .001
+    prop_ofexpI001_T55 <- mean(extract_expI_T55 <= 0.001)
+    IData001_55T[Participant_T55,Mag_T55] <- prop_ofexpI001_T55
+  }
+}
+
+#Code to format Between subject effect p-values 
+#df to be plotted as a heatmap
+BData05_55T
+BData05_55T <- rowid_to_column(BData05_55T, var='Participant')
+BData05_55T$Participant <- BData05_55T[, 1] + 4
+names(BData05_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+BData05_55T[2:12] <- BData05_55T[2:12]*100
+BData05_55T <- melt(BData05_55T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(BData05_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .05
+ggplot(BData05_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+BData01_55T
+BData01_55T <- rowid_to_column(BData01_55T, var='Participant')
+BData01_55T$Participant <- BData01_55T[, 1] + 4
+names(BData01_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+BData01_55T[2:12] <- BData01_55T[2:12]*100
+BData01_55T <- melt(BData01_55T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(BData01_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .01
+ggplot(BData01_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format Betweeb subject effect p-values 
+#df to be plotted as a heatmap
+BData001_55T
+BData001_55T <- rowid_to_column(BData001_55T, var='Participant')
+BData001_55T$Participant <- BData001_55T[, 1] + 4
+names(BData001_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+
+BData001_55T[2:12] <- BData001_55T[2:12]*100
+BData001_55T <- melt(BData001_55T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(BData001_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with between subject effects 
+#with P-value <= .001
+ggplot(BData001_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData05_55T <- rowid_to_column(WData05_55T, var='Participant')
+WData05_55T$Participant <- WData05_55T[, 1] + 4
+names(WData05_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+WData05_55T[2:12] <- WData05_55T[2:12]*100
+WData05_55T <- melt(WData05_55T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(WData05_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .05
+ggplot(WData05_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a heatmap
+WData01_55T
+WData01_55T <- rowid_to_column(WData01_55T, var='Participant')
+WData01_55T$Participant <- WData01_55T[, 1] + 4
+names(WData01_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+WData01_55T[2:12] <- WData01_55T[2:12]*100
+WData01_55T <- melt(WData01_55T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(WData01_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .01
+ggplot(WData01_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format within subject effect p-values 
+#df to be plotted as a 
+WData001_55T
+WData001_55T <- rowid_to_column(WData001_55T, var='Participant')
+WData001_55T$Participant <- WData001_55T[, 1] + 4
+names(WData001_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+
+WData001_55T[2:12] <- WData001_55T[2:12]*100
+WData001_55T <- melt(WData001_55T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(WData001_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with within subject effects 
+#with P-value <= .001
+ggplot(WData001_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData05_55T <- rowid_to_column(IData05_55T, var='Participant')
+IData05_55T$Participant <- IData05_55T[, 1] + 4
+names(IData05_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+IData05_55T[2:12] <- IData05_55T[2:12]*100
+IData05_55T <- melt(IData05_55T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(IData05_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .05
+ggplot(IData05_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData01_55T
+IData01_55T <- rowid_to_column(IData01_55T, var='Participant')
+IData01_55T$Participant <- IData01_55T[, 1] + 4
+names(IData01_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                        "0.28", "0.32", "0.36","0.40")
+
+
+IData01_55T[2:12] <- IData01_55T[2:12]*100
+IData01_55T <- melt(IData01_55T, id = c("Participant"),
+                    measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                "0.28", "0.32", "0.36","0.40"))
+
+names(IData01_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .01
+ggplot(IData01_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+#Code to format interaction effect p-values 
+#df to be plotted as a heatmap
+IData001_55T
+IData001_55T <- rowid_to_column(IData001_55T, var='Participant')
+IData001_55T$Participant <- IData001_55T[, 1] + 4
+names(IData001_55T) <- c("Participant","0","0.04","0.08","0.12","0.16","0.20","0.24",
+                         "0.28", "0.32", "0.36","0.40")
+
+
+IData001_55T[2:12] <- IData001_55T[2:12]*100
+IData001_55T <- melt(IData001_55T, id = c("Participant"),
+                     measure = c("0","0.04","0.08","0.12","0.16","0.20","0.24",
+                                 "0.28", "0.32", "0.36","0.40"))
+
+names(IData001_55T) <- c("Participant", "Effect", "PV")
+
+#Heatmap of %experiments with interaction effects 
+#with P-value <= .001
+ggplot(IData001_55T, aes(Effect, Participant, fill = PV)) + geom_tile() +
+  xlab("Magnitude of Effect") + ylab("Number of Participants\n Per Condition") +
+  scale_fill_gradient(limits = c(0, 100), low = "white", high = "black") +
+  scale_y_continuous(expand = c(0,0),breaks = 5:15)+
+  labs(fill="% of Experiments")+
+  theme(axis.ticks = element_blank(),panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())+theme_apa()
+
+
+#Code below to set up line graph of 55 tials 
+#0 magnitude of effect experiment plot
+SED<-files_55T[[2]]
+
+
+SEDsubE <- subset(SED, Condition == "Experimental")
+
+SEDsubC <- subset(SED, Condition == "Control")
+
+#means for the experimental condition for each session
+Exp_mean <- tapply(SEDsubE$PSE,SEDsubE$Session, mean) 
+#means for the control condition for each session
+Cont_mean <-tapply(SEDsubC$PSE,SEDsubC$Session, mean) 
+
+#put means into dataframe
+Exp_mean <- aggregate(SEDsubE$PSE, list(SEDsubE$Session), mean)
+
+Cont_mean<- aggregate(SEDsubC$PSE, list(SEDsubC$Session), mean)
+
+#custom standard error funtion to get standard error
+StanE <- function(x) sd(x)/sqrt(length(x))
+
+#SE for the experimental condition for each session
+Exp_SE <- tapply(SEDsubE$PSE,SEDsubE$Session, StanE)
+#SE for the contorl condition for each session
+Cont_SE<-tapply(SEDsubC$PSE,SEDsubC$Session, StanE)
+
+#standrd error into dataframe
+Exp_SE <- aggregate(SEDsubE$PSE, list(SEDsubE$Session), StanE)
+ContSE <- aggregate(SEDsubC$PSE, list(SEDsubC$Session), StanE)
+
+
+Exp_SD <- tapply(SEDsubE$PSE,SEDsubE$Session, sd)
+#SE for the contorl condition for each session
+Cont_SD <-tapply(SEDsubC$PSE,SEDsubC$Session, sd)
+#creating standard errot funtion
+
+#plotting data
+plotdat <- data.frame(Condition= c("Experimental","Experimental","Experimental","Experimental","Experimental","Experimental",
+                                   "Control","Control","Control","Control","Control","Control"),
+                      Session = c("Baseline" ,  "1" ,  "2" ,  "3" ,  "4" ,  "5" ,
+                                  "Baseline" ,  "1" ,  "2" ,  "3" ,  "4" ,  "5" ),
+                      mean = c(Exp_mean$x,Cont_mean$x),
+                      SE = c(Exp_SE$x, ContSE$x))
+#factorise df variables for plotting
+plotdat$Session <- factor(plotdat$Session , levels = c( "Baseline","1","2","3","4","5"))
+
+
+line_1 <- ggplot(data = plotdat, aes(x = Session, y = mean, fill = Condition,  group = Condition))+
+  geom_line(aes(linetype = Condition))+
+  geom_point(aes(shape = Condition))+ 
+  geom_errorbar(aes(ymin=mean-1.96*SE, ymax= mean + 1.96*SE), width =.2)+
+  scale_y_continuous(expand = c(0, 0), limits = c(-2, 3))+ 
+  ylab("PSE (Degrees)")+theme_apa()
+  
+line_1  
+
+
+#code below to set up line graph of 55 tials 
+#0.4 magnitude of effect experiment plot
+SED<-files_55T[[12100]]
+
+
+SEDsubE <- subset(SED, Condition == "Experimental")
+
+SEDsubC <- subset(SED, Condition == "Control")
+
+#means for the experimental condition for each session
+Exp_mean <- tapply(SEDsubE$PSE,SEDsubE$Session, mean) 
+#means for the control condition for each session
+Cont_mean <-tapply(SEDsubC$PSE,SEDsubC$Session, mean) 
+
+#put means into dataframe
+Exp_mean <- aggregate(SEDsubE$PSE, list(SEDsubE$Session), mean)
+
+Cont_mean<- aggregate(SEDsubC$PSE, list(SEDsubC$Session), mean)
+
+#custom standard error funtion to get standard error
+StanE <- function(x) sd(x)/sqrt(length(x))
+
+#SE for the experimental condition for each session
+Exp_SE <- tapply(SEDsubE$PSE,SEDsubE$Session, StanE)
+#SE for the contorl condition for each session
+Cont_SE<-tapply(SEDsubC$PSE,SEDsubC$Session, StanE)
+
+#standrd error into dataframe
+Exp_SE <- aggregate(SEDsubE$PSE, list(SEDsubE$Session), StanE)
+ContSE <- aggregate(SEDsubC$PSE, list(SEDsubC$Session), StanE)
+
+
+Exp_SD <- tapply(SEDsubE$PSE,SEDsubE$Session, sd)
+#SE for the contorl condition for each session
+Cont_SD <-tapply(SEDsubC$PSE,SEDsubC$Session, sd)
+#creating standard errot funtion
+
+#plotting data
+plotdat <- data.frame(Condition= c("Experimental","Experimental","Experimental","Experimental","Experimental","Experimental",
+                                   "Control","Control","Control","Control","Control","Control"),
+                      Session = c("Baseline" ,  "1" ,  "2" ,  "3" ,  "4" ,  "5" ,
+                                  "Baseline" ,  "1" ,  "2" ,  "3" ,  "4" ,  "5" ),
+                      mean = c(Exp_mean$x,Cont_mean$x),
+                      SE = c(Exp_SE$x, ContSE$x))
+#factorise df variables for plotting
+plotdat$Session <- factor(plotdat$Session , levels = c( "Baseline","1","2","3","4","5"))
+
+
+line_2<- ggplot(data = plotdat, aes(x = Session, y = mean, fill = Condition,  group = Condition))+
+  geom_line(aes(linetype = Condition))+
+  geom_point(aes(shape = Condition))+ 
+  geom_errorbar(aes(ymin=mean-1.96*SE, ymax= mean + 1.96*SE), width =.2)+
+  scale_y_continuous(expand = c(0, 0), limits = c(-2, 3))+ 
+  ylab("PSE (Degrees)")+theme_apa()
+
+line_2
+
+
+
+#Subset df for line graphs for false discovery 
+#rate across participant number for no population
+#effect for between subject effects
+No_Effect_BE_10 <- subset(BData05_10T, Effect == "0")
+No_Effect_BE_25 <- subset(BData05_25T, Effect == "0")
+No_Effect_BE_40 <- subset(BData05_40T, Effect == "0")
+No_Effect_BE_55 <- subset(BData05_55T, Effect == "0") 
+
+Full_No_Effect_BE <- rbind(No_Effect_BE_10,No_Effect_BE_25,
+                           No_Effect_BE_40,No_Effect_BE_55)
+Full_No_Effect_BE[,"Trials"] <- NA
+Full_No_Effect_BE[1:11,"Trials"] <- "10"
+Full_No_Effect_BE[12:22,"Trials"] <- "25"
+Full_No_Effect_BE[23:33,"Trials"] <- "40"
+Full_No_Effect_BE[34:44,"Trials"] <- "55"
+
+Full_No_Effect_BE$Trials <- factor(Full_No_Effect_BE$Trials)
+
+#plot false postive between subject effect
+ggplot(Full_No_Effect_BE, aes(x = Participant, y = PV, group = Trials))+
+  geom_line(aes(color=Trials),size= 1)+theme_apa()+
+  scale_y_continuous(breaks = 0:15,limits = c(0,15),expand = c(0,0))+
+  scale_x_continuous(breaks = 5:15,expand = c(0,0))+
+  xlab("Number of Participants\n per Condition")+
+  ylab("% of Experiments")+geom_hline(yintercept = 5, linetype = "dashed")+
+  theme(legend.position= "top")
+       
+#Subset df for line graphs for false discovery 
+#rate across participant number for no population
+#effect for within subject effects
+No_Effect_WE_10 <- subset(WData05_10T, Effect == "0")
+No_Effect_WE_25 <- subset(WData05_25T, Effect == "0")
+No_Effect_WE_40 <- subset(WData05_40T, Effect == "0")
+No_Effect_WE_55 <- subset(WData05_55T, Effect == "0") 
+#binding df and adding identification column
+Full_No_Effect_WE <- rbind(No_Effect_WE_10,No_Effect_WE_25,
+                           No_Effect_WE_40,No_Effect_WE_55)
+
+Full_No_Effect_WE[,"Trials"] <- NA
+Full_No_Effect_WE[1:11,"Trials"] <- "10"
+Full_No_Effect_WE[12:22,"Trials"] <- "25"
+Full_No_Effect_WE[23:33,"Trials"] <- "40"
+Full_No_Effect_WE[34:44,"Trials"] <- "55"
+
+#Factorise trials variable for plotting
+Full_No_Effect_WE$Trials <- factor(Full_No_Effect_WE$Trials)
+
+#plot false postive rates within subject effect
+ggplot(Full_No_Effect_WE, aes(x = Participant, y = PV, group = Trials))+
+  geom_line(aes(color=Trials),size= 1)+theme_apa()+
+  scale_y_continuous(breaks = 0:15,limits = c(0,12), expand = c(0,0))+
+  scale_x_continuous(breaks = 5:15, expand = c(0,0))+
+  xlab("Number of Participants\n per Condition")+
+  ylab("% of Experiments")+geom_hline(yintercept = 5, linetype = "dashed")+
+  theme(legend.position= "top")
+ 
+ 
+#Subset df for line graphs for false discovery 
+#rate across participant number for no population
+#effect for interaction effects across trials per stimulus
+No_Effect_IE_10 <- subset(IData05_10T, Effect == "0")
+No_Effect_IE_25 <- subset(IData05_25T, Effect == "0")
+No_Effect_IE_40 <- subset(IData05_40T, Effect == "0")
+No_Effect_IE_55 <- subset(IData05_55T, Effect == "0")
+
+#binding df and adding identifiaction column
+Full_No_Effect_IE <- rbind(No_Effect_IE_10,No_Effect_IE_25,No_Effect_IE_40,No_Effect_IE_55)
+Full_No_Effect_IE[,"Trials"] <- NA
+Full_No_Effect_IE[1:11,"Trials"] <- "10"
+Full_No_Effect_IE[12:22,"Trials"] <- "25"
+Full_No_Effect_IE[23:33,"Trials"] <- "40"
+Full_No_Effect_IE[34:44,"Trials"] <- "55"
+#Factorising trial variable
+Full_No_Effect_IE$Trials <- factor(Full_No_Effect_IE$Trials)
+
+#line plot of false postive rate across trial setting for interaction effects
+ggplot(Full_No_Effect_IE, aes(x = Participant, y = PV, group = Trials))+
+  geom_line(aes(color=Trials),size= 1)+theme_apa()+
+  scale_y_continuous(breaks = 0:15, limits = c(0, 15), expand = c(0,0))+
+  scale_x_continuous(breaks = 5:15, expand = c(0,0))+
+  xlab("Number of Participants\n per Condition")+
+  ylab("% of Experiments")+geom_hline(yintercept = 5, linetype = "dashed")+
+  theme(legend.position= "top")
+
+#~~~~~~~
+# not in final report
+#Average alpha level for between subject effects
+#Subset of the p-values for trials per stim aetting 
+No_Effect_BE10T_PV <- subset(Full_No_Effect_BE, Trials == "10")
+No_Effect_BE25T_PV <- subset(Full_No_Effect_BE, Trials == "25")
+No_Effect_BE40T_PV <- subset(Full_No_Effect_BE, Trials == "40")
+No_Effect_BE55T_PV <- subset(Full_No_Effect_BE, Trials == "55")
+
+#Mean for the Between subject false postive 
+#rate for simulated experiments for between
+#subject effect and across trial setting
+mean(No_Effect_BE10T_PV$PV)
+sd(No_Effect_BE10T_PV$PV)
+mean(No_Effect_BE25T_PV$PV)
+sd(No_Effect_BE25T_PV$PV)
+mean(No_Effect_BE40T_PV$PV)
+sd(No_Effect_BE40T_PV$PV)
+mean(No_Effect_BE55T_PV$PV)
+sd(No_Effect_BE55T_PV$PV)
+
+#Average alpha level for within subject effects
+#Subset of the p-values for trials per stim aetting 
+No_Effect_WE10T_PV <- subset(Full_No_Effect_WE, Trials == "10")
+No_Effect_WE25T_PV <- subset(Full_No_Effect_WE, Trials == "25")
+No_Effect_WE40T_PV <- subset(Full_No_Effect_WE, Trials == "40")
+No_Effect_WE55T_PV <- subset(Full_No_Effect_WE, Trials == "55")
+
+#Mean for the within subject false postive 
+#rate for simulated experiments for between
+#subject effect and across trial setting
+mean(No_Effect_WE10T_PV$PV)
+sd(No_Effect_WE10T_PV$PV)
+mean(No_Effect_WE25T_PV$PV)
+sd(No_Effect_WE25T_PV$PV)
+mean(No_Effect_WE40T_PV$PV)
+sd(No_Effect_WE40T_PV$PV)
+mean(No_Effect_WE55T_PV$PV)
+sd(No_Effect_WE55T_PV$PV)
+
+#Average alpha level for within subject effects
+#Subset of the p-values for trials per stimulus setting 
+No_Effect_IE10T_PV <- subset(Full_No_Effect_IE, Trials == "10")
+No_Effect_IE25T_PV <- subset(Full_No_Effect_IE, Trials == "25")
+No_Effect_IE40T_PV <- subset(Full_No_Effect_IE, Trials == "40")
+No_Effect_IE55T_PV <- subset(Full_No_Effect_IE, Trials == "55")
+
+#Mean for the within subject false postive 
+#rate for simulated experiments for between
+#subject effect and across trial setting
+mean(No_Effect_IE10T_PV$PV)
+sd(No_Effect_IE10T_PV$PV)
+mean(No_Effect_IE25T_PV$PV)
+sd(No_Effect_IE25T_PV$PV)
+mean(No_Effect_IE40T_PV$PV)
+sd(No_Effect_IE40T_PV$PV)
+mean(No_Effect_IE55T_PV$PV)
+sd(No_Effect_IE55T_PV$PV)
+#~~~~~
+
+#---------------
+#---------------
+
+#Generating line graphs to test the
+#median number of particupant (8) across between, within and interaction effects
+#findings
+
+#Subset df for line graphs for median partipant per condition
+#of 8 across magnitudes of effect simulated
+MedianNumofPartipant_BE_10 <- subset(BData05_10T, Participant == "8")
+MedianNumofPartipant_BE_25 <- subset(BData05_25T, Participant == "8")
+MedianNumofPartipant_BE_40 <- subset(BData05_40T, Participant == "8")
+MedianNumofPartipant_BE_55 <- subset(BData05_55T, Participant == "8") 
+#bind df together and add identification column
+Full_MedianNumofPartipant_BE <- rbind(MedianNumofPartipant_BE_10,
+                                      MedianNumofPartipant_BE_25,
+                                      MedianNumofPartipant_BE_40,
+                                      MedianNumofPartipant_BE_55)
+
+Full_MedianNumofPartipant_BE[,"Trials"] <- NA
+Full_MedianNumofPartipant_BE[1:11,"Trials"] <- "10"
+Full_MedianNumofPartipant_BE[12:22,"Trials"] <- "25"
+Full_MedianNumofPartipant_BE[23:33,"Trials"] <- "40"
+Full_MedianNumofPartipant_BE[34:44,"Trials"] <- "55"
+
+Full_MedianNumofPartipant_BE$Effect <- as.numeric(as.character(Full_MedianNumofPartipant_BE$Effect))
+Full_MedianNumofPartipant_BE$Trials <- factor(Full_MedianNumofPartipant_BE$Trials)
+
+#plot of median (N = 8) Partipant between subject effect
+ggplot(Full_MedianNumofPartipant_BE, aes(x = Effect, y = PV, group = Trials))+
+  geom_line(aes(color=Trials))+theme_apa()+
+  ylab("% of Experiments")+xlab("Magnitude of Effect")+
+  scale_y_continuous(limits = c(0, 100), breaks= seq(0, 100, 20),
+                      expand = c(0, 0))+
+  scale_x_continuous(breaks=seq(0, 0.4, .04),expand = c(0,0))+
+  geom_hline(yintercept = 80, linetype = "dashed")+
+  geom_vline(xintercept = 0.28)
+  
+      
+  
+
+
+#--------
+#Median particpant within subject effect plot code
+MedianNumofPartipant_WE_10 <- subset(WData05_10T, Participant == "8")
+MedianNumofPartipant_WE_25 <- subset(WData05_25T, Participant == "8")
+MedianNumofPartipant_WE_40 <- subset(WData05_40T, Participant == "8")
+MedianNumofPartipant_WE_55 <- subset(WData05_55T, Participant == "8") 
+
+Full_MedianNumofPartipant_WE <- rbind(MedianNumofPartipant_WE_10,
+                                      MedianNumofPartipant_WE_25,
+                                      MedianNumofPartipant_WE_40,
+                                      MedianNumofPartipant_WE_55)
+
+
+Full_MedianNumofPartipant_WE[,"Trials"] <- NA
+Full_MedianNumofPartipant_WE[1:11,"Trials"] <- "10"
+Full_MedianNumofPartipant_WE[12:22,"Trials"] <- "25"
+Full_MedianNumofPartipant_WE[23:33,"Trials"] <- "40"
+Full_MedianNumofPartipant_WE[34:44,"Trials"] <- "55"
+
+Full_MedianNumofPartipant_WE$Effect <- as.numeric(as.character(Full_MedianNumofPartipant_BE$Effect))
+Full_MedianNumofPartipant_WE$Trials <- factor(Full_MedianNumofPartipant_BE$Trials)
+
+#Plot median (N= 8) partiapnt within subject effect
+ggplot(Full_MedianNumofPartipant_WE, aes(x = Effect, y = PV, group = Trials))+
+  geom_line(aes(color=Trials))+theme_apa()+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100))+
+  scale_x_continuous(breaks=seq(0,0.4, .04),expand = c(0, 0), limits = c(0, .4))+
+  ylab("% of Experiments")+xlab("Magnitude of Effect")+
+  geom_hline(yintercept = 50, linetype = "dashed")+
+  geom_vline(xintercept = 0.36)
+
+#--------
+#Median particpant interaction effect plot code
+MedianNumofPartipant_IE_10 <- subset(IData05_10T, Participant == "8")
+MedianNumofPartipant_IE_25 <- subset(IData05_25T, Participant == "8")
+MedianNumofPartipant_IE_40 <- subset(IData05_40T, Participant == "8")
+MedianNumofPartipant_IE_55 <- subset(IData05_55T, Participant == "8") 
+
+Full_MedianNumofPartipant_IE <- rbind(MedianNumofPartipant_IE_10,
+                                      MedianNumofPartipant_IE_25,
+                                      MedianNumofPartipant_IE_40,
+                                      MedianNumofPartipant_IE_55)
+
+
+Full_MedianNumofPartipant_IE[,"Trials"] <- NA
+Full_MedianNumofPartipant_IE[1:11,"Trials"] <- "10"
+Full_MedianNumofPartipant_IE[12:22,"Trials"] <- "25"
+Full_MedianNumofPartipant_IE[23:33,"Trials"] <- "40"
+Full_MedianNumofPartipant_IE[34:44,"Trials"] <- "55"
+
+Full_MedianNumofPartipant_IE$Effect <- as.numeric(as.character(Full_MedianNumofPartipant_BE$Effect))
+Full_MedianNumofPartipant_IE$Trials <- factor(Full_MedianNumofPartipant_BE$Trials)
+
+
+ggplot(Full_MedianNumofPartipant_IE, aes(x = Effect, y = PV, group = Trials))+
+  geom_line(aes(color=Trials))+theme_apa()+
+  scale_y_continuous(limits = c(0, 100),expand = c(0, 0))+
+  scale_x_continuous(breaks=seq(0, 0.4, .04),expand = c(0, 0))+
+  ylab("% of Experiments")+xlab("Magnitude of Effect")+
+  geom_hline(yintercept = 50, linetype = "dashed")+
+  geom_vline(xintercept = 0.36)
+
+
+#====
+#Subsetting df for 15 participants per condition across trials 
+#per stimulus for between subject effects
+Participant15_BE_10 <- subset(BData05_10T, Participant == "15")
+Participant15_BE_25 <- subset(BData05_25T, Participant == "15")
+Participant15_BE_40 <- subset(BData05_40T, Participant == "15")
+Participant15_BE_55 <- subset(BData05_55T, Participant == "15") 
+
+#combine df above for 15 partipants signficant finding at pv .05
+#across the effect sizes for the within subject effct
+Full_Partipant15_BE <- rbind(Participant15_BE_10,
+                             Participant15_BE_25,
+                             Participant15_BE_40,
+                             Participant15_BE_55)
+Full_Partipant15_BE[,"Trials"] <- NA
+Full_Partipant15_BE[1:11,"Trials"] <- "10"
+Full_Partipant15_BE[12:22,"Trials"] <- "25"
+Full_Partipant15_BE[23:33,"Trials"] <- "40"
+Full_Partipant15_BE[34:44,"Trials"] <- "55"
+
+Full_Partipant15_BE$Effect <- as.numeric(as.character(Full_Partipant15_BE$Effect))
+Full_Partipant15_BE$Trials <- factor(Full_Partipant15_BE$Trials)
+
+#Plotting line graph of between subject effects for %experiments
+#for 15 participants per condtion  with P <= .05
+ggplot(Full_Partipant15_BE, aes(x = Effect, y = PV, group = Trials))+
+  geom_line(aes(color=Trials))+theme_apa()+
+  scale_y_continuous(breaks=seq(0, 100, 20),
+                     limits = c(0, 100),expand = c(0, 0))+
+  scale_x_continuous(breaks=seq(0, 0.4, .04),expand = c(0, 0))+
+  ylab("% of Experiments")+xlab("Magnitude of Effect")+
+  geom_hline(yintercept = 80, linetype = "dashed")+
+  geom_vline(xintercept = 0.20)
+
+#plot of median
+ggplot(Full_MedianNumofPartipant_BE, aes(x = Effect, y = PV, group = Trials))+
+  geom_line(aes(color=Trials))+theme_apa()+
+  ylab("% of Experiments")+xlab("Magnitude of Effect")+
+  scale_y_continuous(breaks= seq(0, 100, 20),limits = c(0, 100),
+                     expand = c(0, 0))+
+  scale_x_continuous(breaks=seq(0, 0.4, .04),expand = c(0,0))+
+  geom_hline(yintercept = 80, linetype = "dashed")+
+  geom_vline(xintercept = 0.24, linetype = "dashed")
+
+#Subsetting df for 15 participants per condition across trials 
+#per stimulus for within subject effects
+Participant15_WE_10 <- subset(WData05_10T, Participant == "15")
+Participant15_WE_25 <- subset(WData05_25T, Participant == "15")
+Participant15_WE_40 <- subset(WData05_40T, Participant == "15")
+Participant15_WE_55 <- subset(WData05_55T, Participant == "15") 
+
+#combine df above for 15 partipants signficant finding at pv .05
+#across the effect sizes for the within subject effct
+Full_Partipant15_WE <- rbind(Participant15_WE_10,
+                             Participant15_WE_25,
+                             Participant15_WE_40,
+                             Participant15_WE_55)
+Full_Partipant15_WE[,"Trials"] <- NA
+Full_Partipant15_WE[1:11,"Trials"] <- "10"
+Full_Partipant15_WE[12:22,"Trials"] <- "25"
+Full_Partipant15_WE[23:33,"Trials"] <- "40"
+Full_Partipant15_WE[34:44,"Trials"] <- "55"
+
+Full_Partipant15_WE$Effect <- as.numeric(as.character(Full_MedianNumofPartipant_BE$Effect))
+Full_Partipant15_WE$Trials <- factor(Full_MedianNumofPartipant_BE$Trials)
+
+#Plotting line graph of within subject effects for %experiments
+#for 15 participants per condtion  with P <= .05
+ggplot(Full_Partipant15_WE, aes(x = Effect, y = PV, group = Trials))+
+  geom_line(aes(color=Trials))+theme_apa()+
+  scale_y_continuous(breaks=seq(0, 100, 20),
+                     limits = c(0, 100),expand = c(0, 0))+
+  scale_x_continuous(breaks=seq(0, 0.4, .04),expand = c(0, 0))+
+  ylab("% of Experiments")+xlab("Magnitude of Effect")+
+  geom_hline(yintercept = 80, linetype = "dashed")+
+  geom_vline(xintercept = 0.36)
+
+
+#Subsetting df for 15 participants per condition across trials 
+#per stimulus for interaction effects
+Participant15_IE_10 <- subset(IData05_10T, Participant == "15")
+Participant15_IE_25 <- subset(IData05_25T, Participant == "15")
+Participant15_IE_40 <- subset(IData05_40T, Participant == "15")
+Participant15_IE_55 <- subset(IData05_55T, Participant == "15") 
+
+#combine df above for partcipant 15 signficant
+#finding at pv <=.05, across the Magnitudes of effect
+Full_Partipant15_IE <- rbind(Participant15_IE_10,
+                             Participant15_IE_25,
+                             Participant15_IE_40,
+                             Participant15_IE_55)
+
+
+Full_Partipant15_IE[,"Trials"] <- NA
+Full_Partipant15_IE[1:11,"Trials"] <- "10"
+Full_Partipant15_IE[12:22,"Trials"] <- "25"
+Full_Partipant15_IE[23:33,"Trials"] <- "40"
+Full_Partipant15_IE[34:44,"Trials"] <- "55"
+
+Full_Partipant15_IE$Effect <- as.numeric(as.character(Full_MedianNumofPartipant_BE$Effect))
+Full_Partipant15_IE$Trials <- factor(Full_MedianNumofPartipant_BE$Trials)
+
+#Plotting line graph of %experimentsthe of interaction effects for 
+#for 15 participants per condtion with P <= .05
+ggplot(Full_Partipant15_IE, aes(x = Effect, y = PV, group = Trials))+
+  geom_line(aes(color=Trials))+theme_apa()+
+  scale_y_continuous(breaks=seq(0, 100, 20),
+                     limits = c(0, 100),expand = c(0, 0))+
+  scale_x_continuous(breaks=seq(0, 0.4, .04),expand = c(0, 0))+
+  ylab("% of Experiments")+xlab("Magnitude of Effect")+
+  geom_hline(yintercept = 80, linetype = "dashed")+
+ geom_vline(xintercept = 0.36)
